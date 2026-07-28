@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ndis-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ndis
+      POSTGRES_PASSWORD: ndis
+      POSTGRES_DB: ndis
+    ports:
+      - "5432:5432"
+    volumes:
+      - ndis_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ndis -d ndis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: ndis-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ndis_minio
+      MINIO_ROOT_PASSWORD: ndis_minio_secret
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    volumes:
+      - ndis_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ndis_postgres_data:
+  ndis_minio_data:
