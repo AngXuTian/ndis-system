@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ndis
-      POSTGRES_PASSWORD: ndis
+      POSTGRES_PASSWORD: ndispass
       POSTGRES_DB: ndis
     ports:
       - "5432:5432"
