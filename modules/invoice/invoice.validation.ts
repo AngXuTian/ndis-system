@@ -1,3 +1,5 @@
+import { Kysely } from "kysely";
+
 export type ValidationErrors = Record<string, string[]>;
 
 export interface InvoiceItemInput {
@@ -91,4 +93,35 @@ export function validateInvoiceItemComplete(item: InvoiceItemInput): ValidationE
 
 export function hasErrors(errors: ValidationErrors): boolean {
   return Object.keys(errors).length > 0;
+}
+
+// Check overlapping rate sets for a line item
+export async function validateRateSetOverlap(
+  db: Kysely<any>,
+  startDate: string,
+  endDate: string
+): Promise<number> {
+  const matchingRateSets = await db
+    .selectFrom('rate_set')
+    .select('id')
+    .where('start_date', '<=', endDate)
+    .where((eb) =>
+      eb.or([
+        eb('end_date', 'is', null),
+        eb('end_date', '>=', startDate),
+      ])
+    )
+    .execute();
+
+  if (matchingRateSets.length === 0) {
+    throw new Error(`No matching Rate Set found for date range ${startDate} to ${endDate}.`);
+  }
+
+  if (matchingRateSets.length > 1) {
+    throw new Error(
+      `Multiple (${matchingRateSets.length}) matching Rate Sets found for date range ${startDate} to ${endDate}. Please adjust dates.`
+    );
+  }
+
+  return matchingRateSets[0].id;
 }

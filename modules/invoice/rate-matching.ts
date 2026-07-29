@@ -1,5 +1,6 @@
 import { db } from "@/db";
-import { sql } from "kysely";
+import { Kysely, sql } from 'kysely';
+import BigNumber from 'bignumber.js';
 
 export interface RateSetMatch {
   rateSetId: number | null;
@@ -53,4 +54,41 @@ export async function findMatchingPrice(params: {
 
   if (!row || row.unit_price === null) return null;
   return { id: row.id, unitPrice: row.unit_price };
+}
+
+export async function findMatchingMaxRate(
+  db: Kysely<any>,
+  params: {
+    rateSetId: number;
+    supportItemId: number;
+    startDate: string; // YYYY-MM-DD
+    endDate: string;   // YYYY-MM-DD
+    pricingRegion: string;
+  }
+): Promise<number | null> {
+  const match = await db
+    .selectFrom('rate_set_support_item_price')
+    .select('unit_price')
+    .where('rate_set_id', '=', params.rateSetId)
+    .where('support_item_id', '=', params.supportItemId)
+    .where('pricing_region_code', '=', params.pricingRegion)
+    .where('start_date', '<=', params.endDate)
+    .where((eb) =>
+      eb.or([
+        eb('end_date', 'is', null),
+        eb('end_date', '>=', params.startDate),
+      ])
+    )
+    // Order by tie-breaking rule:
+    // 1. Latest start_date
+    // 2. Latest finite end_date (NULLs last or lower precedence)
+    // 3. Highest rate_set_support_item_price.id
+    .orderBy('start_date', 'desc')
+    .orderBy(sql`COALESCE(end_date, '9999-12-31')`, 'desc')
+    .orderBy('id', 'desc')
+    .limit(1)
+    .executeTakeFirst();
+
+  if (!match) return null;
+  return new BigNumber(match.unit_price).toNumber();
 }
