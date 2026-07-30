@@ -1,5 +1,5 @@
 // app/rate-sets/[id]/page.tsx
-import { rateSetService } from "@/modules/rate-set/rate-set.service";
+import { rateSetService } from "@/services/rate-set.service";
 import { RateSetForm } from "@/modules/rate-set/RateSetForm";
 import { RateSetImportPanel } from "@/modules/rate-set/RateSetImportPanel";
 import { notFound } from "next/navigation";

@@ -1,4 +1,4 @@
-import { clientService } from "@/modules/client/client.service";
+import { clientService } from "@/services/client.service";
 import { ClientForm } from "@/modules/client/ClientForm";
 import { notFound } from "next/navigation";
 

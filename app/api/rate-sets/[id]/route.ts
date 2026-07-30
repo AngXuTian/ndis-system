@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { rateSetService, ValidationError } from "@/modules/rate-set/rate-set.service";
+import { rateSetService, ValidationError } from "@/services/rate-set.service";
 import { apiSuccess, apiValidationError, apiNotFound, apiServerError } from "@/lib/api-response";
 
 interface Params {

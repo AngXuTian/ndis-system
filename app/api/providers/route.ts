@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { providerService, ValidationError } from "@/modules/provider/provider.service";
+import { providerService, ValidationError } from "@/services/provider.service";
 import { apiSuccess, apiValidationError, apiServerError } from "@/lib/api-response";
 
 export async function GET(req: NextRequest) {

@@ -1,4 +1,4 @@
-import { invoiceService } from "@/modules/invoice/invoice.service";
+import { invoiceService } from "@/services/invoice.service";
 import { InvoiceForm } from "@/modules/invoice/InvoiceForm";
 import { notFound } from "next/navigation";
 import dayjs from "dayjs";

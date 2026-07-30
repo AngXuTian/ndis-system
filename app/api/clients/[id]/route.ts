@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { clientService, ValidationError } from "@/modules/client/client.service";
+import { clientService, ValidationError } from "@/services/client.service";
 import { apiSuccess, apiValidationError, apiNotFound, apiServerError } from "@/lib/api-response";
 
 interface Params {

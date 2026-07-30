@@ -1,4 +1,4 @@
-import { providerService } from "@/modules/provider/provider.service";
+import { providerService } from "@/services/provider.service";
 import { ProviderForm } from "@/modules/provider/ProviderForm";
 import { notFound } from "next/navigation";
 

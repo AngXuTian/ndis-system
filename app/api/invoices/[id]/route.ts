@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { invoiceService, ValidationError } from "@/modules/invoice/invoice.service";
+import { invoiceService, ValidationError } from "@/services/invoice.service";
 import { apiSuccess, apiValidationError, apiNotFound, apiServerError } from "@/lib/api-response";
 
 interface Params {
