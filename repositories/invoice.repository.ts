@@ -1,169 +1,182 @@
-import { db } from "@/db";
-import { sql } from "kysely";
-import type { NewInvoice, InvoiceUpdate, NewInvoiceItem } from "@/db/types";
+import { db } from '@/db';
+import { sql, Selectable } from 'kysely';
+import { Invoice } from '@/db/types';
 
-export interface ResolvedItem extends Omit<NewInvoiceItem, "invoice_id"> {
-  id?: number;
-}
-
-export const invoiceRepository = {
-  async list(params: {
-    search?: string;
-    clientId?: number;
-    providerId?: number;
-    limit?: number;
-    offset?: number;
-  }) {
-    let query = db
-      .selectFrom("invoice")
-      .leftJoin("client", "client.id", "invoice.client_id")
-      .leftJoin("provider", "provider.id", "invoice.provider_id")
+export class InvoiceRepository {
+  async findAll(): Promise<any[]> {
+    return await db
+      .selectFrom('invoice')
+      .leftJoin('client', 'client.id', 'invoice.client_id')
+      .leftJoin('provider', 'provider.id', 'invoice.provider_id')
+      .selectAll('invoice')
       .select([
-        "invoice.id",
-        "invoice.invoice_number",
-        "invoice.invoice_date",
-        "invoice.amount",
-        "invoice.expected_amount",
-        "invoice.status",
-        "invoice.client_id",
-        "invoice.provider_id",
-        "client.first_name as client_first_name",
-        "client.last_name as client_last_name",
-        "provider.name as provider_name",
+        'client.first_name as client_first_name',
+        'client.last_name as client_last_name',
+        'provider.name as provider_name',
       ])
-      .where("invoice.deleted_at", "is", null);
-
-    if (params.clientId) query = query.where("invoice.client_id", "=", params.clientId);
-    if (params.providerId) query = query.where("invoice.provider_id", "=", params.providerId);
-    if (params.search) {
-      query = query.where("invoice.invoice_number", "ilike", `%${params.search}%`);
-    }
-
-    const totalRow = await db
-      .selectFrom("invoice")
-      .select(db.fn.countAll<number>().as("count"))
-      .where("deleted_at", "is", null)
-      .executeTakeFirst();
-
-    const rows = await query
-      .orderBy("invoice.created_at", "desc")
-      .limit(params.limit ?? 20)
-      .offset(params.offset ?? 0)
+      .where('invoice.deleted_at', 'is', null)
+      .orderBy('invoice.id', 'desc')
       .execute();
+  }
 
-    return { rows, total: Number(totalRow?.count ?? 0) };
-  },
-
-  async findById(id: number) {
+  async findById(id: number): Promise<any> {
     const invoice = await db
-      .selectFrom("invoice")
+      .selectFrom('invoice')
       .selectAll()
-      .where("id", "=", id)
-      .where("deleted_at", "is", null)
+      .where('id', '=', id)
+      .where('deleted_at', 'is', null)
       .executeTakeFirst();
 
-    if (!invoice) return null;
+    if (!invoice) return undefined;
 
     const items = await db
-      .selectFrom("invoice_item")
+      .selectFrom('invoice_item')
       .selectAll()
-      .where("invoice_id", "=", id)
-      .where("deleted_at", "is", null)
-      .orderBy("sort_order", "asc")
-      .orderBy("id", "asc")
+      .where('invoice_id', '=', id)
+      .where('deleted_at', 'is', null)
+      .orderBy('sort_order', 'asc')
       .execute();
 
-    return { invoice, items };
-  },
+    return { ...invoice, items };
+  }
 
-  async findByProviderAndNumber(providerId: number | null, invoiceNumber: string) {
+  async checkInvoiceNumberUnique(providerId: number, invoiceNumber: string, excludeInvoiceId?: number): Promise<boolean> {
     let query = db
-      .selectFrom("invoice")
-      .select(["id"])
-      .where("deleted_at", "is", null)
-      .where(sql`lower(invoice_number)`, "=", invoiceNumber.toLowerCase());
+      .selectFrom('invoice')
+      .select('id')
+      .where('provider_id', '=', providerId)
+      .where('invoice_number', '=', invoiceNumber)
+      .where('deleted_at', 'is', null);
 
-    query = providerId
-      ? query.where("provider_id", "=", providerId)
-      : query.where("provider_id", "is", null);
+    if (excludeInvoiceId) {
+      query = query.where('id', '!=', excludeInvoiceId);
+    }
 
-    return query.execute();
-  },
+    const existing = await query.executeTakeFirst();
+    return !existing;
+  }
 
-  async createWithItems(invoiceInput: NewInvoice, items: ResolvedItem[]) {
-    return db.transaction().execute(async (trx) => {
-      const invoice = await trx
-        .insertInto("invoice")
-        .values(invoiceInput)
-        .returningAll()
-        .executeTakeFirstOrThrow();
+  async findMatchingRateSets(startDate: string, endDate: string): Promise<any[]> {
+    return await db
+      .selectFrom('rate_set')
+      .selectAll()
+      .where('deactivated_at', 'is', null)
+      .where('deleted_at', 'is', null)
+      .where('start_date', '<=', new Date(endDate))
+      .where((eb) =>
+        eb.or([
+          eb('end_date', 'is', null),
+          eb('end_date', '>=', new Date(startDate)),
+        ])
+      )
+      .execute();
+  }
 
-      const insertedItems = items.length
-        ? await trx
-            .insertInto("invoice_item")
-            .values(
-              items.map((item, idx) => ({
-                ...item,
-                invoice_id: invoice.id,
-                sort_order: idx,
-              }))
-            )
-            .returningAll()
-            .execute()
-        : [];
-
-      return { invoice, items: insertedItems };
-    });
-  },
-
-  async updateWithItems(id: number, invoiceInput: InvoiceUpdate, items: ResolvedItem[]) {
-    return db.transaction().execute(async (trx) => {
-      const invoice = await trx
-        .updateTable("invoice")
-        .set({ ...invoiceInput, updated_at: sql`now()` })
-        .where("id", "=", id)
-        .where("deleted_at", "is", null)
-        .returningAll()
-        .executeTakeFirst();
-
-      if (!invoice) return null;
-
-      // Soft-delete existing items then re-insert current set.
-      // Simpler and safer than diffing for a first implementation;
-      // historical invoice_item rows still exist (deleted_at set), satisfying
-      // "historical data must remain intact" as long as invoices aren't hard-deleted.
-      await trx
-        .updateTable("invoice_item")
-        .set({ deleted_at: sql`now()` })
-        .where("invoice_id", "=", id)
-        .where("deleted_at", "is", null)
-        .execute();
-
-      const insertedItems = items.length
-        ? await trx
-            .insertInto("invoice_item")
-            .values(
-              items.map((item, idx) => ({
-                ...item,
-                invoice_id: id,
-                sort_order: idx,
-              }))
-            )
-            .returningAll()
-            .execute()
-        : [];
-
-      return { invoice, items: insertedItems };
-    });
-  },
-
-  async softDelete(id: number) {
-    return db
-      .updateTable("invoice")
-      .set({ deleted_at: sql`now()` })
-      .where("id", "=", id)
-      .where("deleted_at", "is", null)
-      .returningAll()
+  async findMaxRatePrice(
+    rateSetId: number,
+    supportItemId: number,
+    startDate: string,
+    pricingRegion: string
+  ): Promise<number | null> {
+    const priceRecord = await db
+      .selectFrom('rate_set_support_item_price')
+      .selectAll()
+      .where('rate_set_id', '=', rateSetId)
+      .where('support_item_id', '=', supportItemId)
+      .where('start_date', '<=', new Date(startDate))
+      .where((eb) =>
+        eb.or([
+          eb('pricing_region_code', '=', pricingRegion),
+          eb('pricing_region_code', 'is', null),
+        ])
+      )
+      .orderBy('start_date', 'desc')
+      .orderBy('end_date', 'desc')
+      .orderBy('id', 'desc')
       .executeTakeFirst();
-  },
-};
+
+    return priceRecord && priceRecord.unit_price ? Number(priceRecord.unit_price) : null;
+  }
+
+  async saveInvoice(payload: any, id?: number): Promise<Selectable<Invoice>> {
+    return await db.transaction().execute(async (trx) => {
+      let invoiceRecord: Selectable<Invoice>;
+
+      if (id) {
+        invoiceRecord = await trx
+          .updateTable('invoice')
+          .set({
+            client_id: payload.client_id ?? null,
+            provider_id: payload.provider_id ?? null,
+            invoice_number: payload.invoice_number,
+            invoice_date: payload.invoice_date ? new Date(payload.invoice_date) : null,
+            status: payload.status,
+            amount: payload.amount !== null ? String(payload.amount.toFixed(2)) : null,
+            expected_amount: payload.expected_amount !== null ? String(payload.expected_amount.toFixed(2)) : null,
+            updated_at: sql`now()`,
+          })
+          .where('id', '=', id)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+
+        // Soft-delete old line items
+        await trx
+          .updateTable('invoice_item')
+          .set({ deleted_at: sql`now()` })
+          .where('invoice_id', '=', id)
+          .execute();
+      } else {
+        invoiceRecord = await trx
+          .insertInto('invoice')
+          .values({
+            client_id: payload.client_id ?? null,
+            provider_id: payload.provider_id ?? null,
+            invoice_number: payload.invoice_number,
+            invoice_date: payload.invoice_date ? new Date(payload.invoice_date) : null,
+            status: payload.status,
+            amount: payload.amount !== null ? String(payload.amount.toFixed(2)) : null,
+            expected_amount: payload.expected_amount !== null ? String(payload.expected_amount.toFixed(2)) : null,
+            updated_at: sql`now()`,
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow();
+      }
+
+      // Insert line items
+      if (payload.items && payload.items.length > 0) {
+        await trx
+          .insertInto('invoice_item')
+          .values(
+            payload.items.map((item: any, idx: number) => ({
+              invoice_id: invoiceRecord.id,
+              support_item_id: item.support_item_id ?? null,
+              category_id: item.category_id ?? null,
+              rate_set_id: item.rate_set_id ?? null,
+              start_date: item.start_date ? new Date(item.start_date) : null,
+              end_date: item.end_date ? new Date(item.end_date) : null,
+              unit: item.unit !== undefined && item.unit !== null ? String(Number(item.unit).toFixed(2)) : null,
+              input_rate: item.input_rate !== undefined && item.input_rate !== null ? String(Number(item.input_rate).toFixed(2)) : null,
+              max_rate: item.max_rate !== undefined && item.max_rate !== null ? String(Number(item.max_rate).toFixed(2)) : null,
+              amount: item.amount !== undefined && item.amount !== null ? String(Number(item.amount).toFixed(2)) : null,
+              sort_order: idx + 1,
+              created_at: sql`now()`,
+              updated_at: sql`now()`,
+            }))
+          )
+          .execute();
+      }
+
+      return invoiceRecord;
+    });
+  }
+
+  async softDelete(id: number): Promise<void> {
+    await db
+      .updateTable('invoice')
+      .set({ deleted_at: sql`now()`, updated_at: sql`now()` })
+      .where('id', '=', id)
+      .execute();
+  }
+}
+
+export const invoiceRepository = new InvoiceRepository();

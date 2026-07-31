@@ -1,42 +1,45 @@
-import { NextRequest } from "next/server";
-import { invoiceService, ValidationError } from "@/services/invoice.service";
-import { apiSuccess, apiValidationError, apiNotFound, apiServerError } from "@/lib/api-response";
+import { NextResponse } from 'next/server';
+import { invoiceService } from '@/services/invoice.service';
 
-interface Params {
-  params: Promise<{ id: string }>;
-}
-
-export async function GET(_req: NextRequest, { params }: Params) {
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const result = await invoiceService.get(Number(id));
-    if (!result) return apiNotFound("Invoice");
-    return apiSuccess(result);
-  } catch (err) {
-    return apiServerError(err);
+    const invoice = await invoiceService.getInvoiceById(Number(id));
+    return NextResponse.json({ data: invoice });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: { code: 'NOT_FOUND', message } }, { status: 404 });
   }
 }
 
-export async function PUT(req: NextRequest, { params }: Params) {
+export async function PUT(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
   try {
     const { id } = await params;
     const body = await req.json();
-    const result = await invoiceService.update(Number(id), body);
-    return apiSuccess(result);
-  } catch (err) {
-    if (err instanceof ValidationError) return apiValidationError(err.errors);
-    if (err instanceof Error && err.message === "Invoice not found") return apiNotFound("Invoice");
-    return apiServerError(err);
+    const updated = await invoiceService.saveInvoice(body, Number(id));
+    return NextResponse.json({ data: updated });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: { code: 'BAD_REQUEST', message } }, { status: 400 });
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
   try {
     const { id } = await params;
-    await invoiceService.remove(Number(id));
-    return apiSuccess({ deleted: true });
-  } catch (err) {
-    if (err instanceof Error && err.message === "Invoice not found") return apiNotFound("Invoice");
-    return apiServerError(err);
+    await invoiceService.deleteInvoice(Number(id));
+    return NextResponse.json({ data: { success: true } });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message } }, { status: 500 });
   }
 }

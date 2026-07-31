@@ -1,30 +1,36 @@
-import { NextRequest } from "next/server";
-import { invoiceService, ValidationError } from "@/services/invoice.service";
-import { apiSuccess, apiValidationError, apiServerError } from "@/lib/api-response";
+import { NextResponse } from 'next/server';
+import { invoiceService } from '@/services/invoice.service';
+import { ZodError } from 'zod';
 
-export async function GET(req: NextRequest) {
+export async function GET(): Promise<NextResponse> {
   try {
-    const { searchParams } = new URL(req.url);
-    const search = searchParams.get("search") ?? undefined;
-    const clientId = searchParams.get("clientId") ? Number(searchParams.get("clientId")) : undefined;
-    const providerId = searchParams.get("providerId") ? Number(searchParams.get("providerId")) : undefined;
-    const page = Number(searchParams.get("page") ?? 1);
-    const pageSize = Number(searchParams.get("pageSize") ?? 20);
-
-    const { rows, total } = await invoiceService.list({ search, clientId, providerId, page, pageSize });
-    return apiSuccess(rows, { total, page, pageSize });
-  } catch (err) {
-    return apiServerError(err);
+    const invoices = await invoiceService.getAllInvoices();
+    return NextResponse.json({ data: invoices });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message } }, { status: 500 });
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request): Promise<NextResponse> {
   try {
     const body = await req.json();
-    const result = await invoiceService.create(body);
-    return apiSuccess(result, undefined, 201);
-  } catch (err) {
-    if (err instanceof ValidationError) return apiValidationError(err.errors);
-    return apiServerError(err);
+    const newInvoice = await invoiceService.saveInvoice(body);
+    return NextResponse.json({ data: newInvoice }, { status: 201 });
+  } catch (error: unknown) {
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Validation failed',
+            details: error.flatten().fieldErrors,
+          },
+        },
+        { status: 400 }
+      );
+    }
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: { code: 'BAD_REQUEST', message } }, { status: 400 });
   }
 }
