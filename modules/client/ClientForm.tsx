@@ -1,138 +1,211 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { Form, Input, Select, DatePicker, Button, message } from "antd";
-import { useRouter } from "next/navigation";
-import dayjs from "dayjs";
+import React, { useEffect } from 'react';
+import { Drawer, Form, Input, Select, DatePicker, Switch, Button, Space } from 'antd';
+import dayjs from 'dayjs';
+import { Selectable } from 'kysely';
+import { Client } from '@/db/types';
+import { ClientInput } from '@/validations/client.validation';
 
-interface Option {
-  id?: number;
-  code?: string;
+interface GenderOption {
+  id: number;
   label: string;
 }
 
-interface ClientFormValues {
-  first_name: string;
-  last_name: string;
-  gender_id: number;
-  dob: dayjs.Dayjs;
-  ndis_number: string;
-  email: string;
-  phone_number?: string;
-  address: string;
-  unit_building?: string;
-  pricing_region: string;
+interface ClientFormProps {
+  open: boolean;
+  editingClient: Selectable<Client> | null;
+  genders: GenderOption[];
+  onCancel: () => void;
+  onSubmit: (values: ClientInput) => Promise<void>;
+  loading?: boolean;
 }
 
-type ClientFormInitialValues = Omit<ClientFormValues, "dob"> & { dob?: string | dayjs.Dayjs };
-
-export function ClientForm({
-  initialValues,
-  clientId,
-}: {
-  initialValues?: Partial<ClientFormInitialValues>;
-  clientId?: number;
-}) {
-  const [form] = Form.useForm<ClientFormValues>();
-  const [genders, setGenders] = useState<Option[]>([]);
-  const [regions, setRegions] = useState<Option[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const router = useRouter();
+export const ClientForm: React.FC<ClientFormProps> = ({
+  open,
+  editingClient,
+  genders,
+  onCancel,
+  onSubmit,
+  loading,
+}) => {
+  const [form] = Form.useForm<any>();
 
   useEffect(() => {
-    fetch("/api/genders").then((r) => r.json()).then((res) => setGenders(res.data ?? []));
-    fetch("/api/pricing-regions").then((r) => r.json()).then((res) => setRegions(res.data ?? []));
-  }, []);
-
-  async function onFinish(values: ClientFormValues) {
-    setSubmitting(true);
-    try {
-      const payload = {
-        ...values,
-        dob: values.dob ? values.dob.format("YYYY-MM-DD") : undefined,
-      };
-
-      const res = await fetch(clientId ? `/api/clients/${clientId}` : "/api/clients", {
-        method: clientId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-
-      if (!res.ok) {
-        if (json.error?.details) {
-          form.setFields(
-            Object.entries(json.error.details).map(([field, errs]) => ({
-              name: field as keyof ClientFormValues,
-              errors: errs as string[],
-            }))
-          );
-        }
-        message.error(json.error?.message ?? "Failed to save client");
-        return;
+    if (open) {
+      if (editingClient) {
+        form.setFieldsValue({
+          first_name: editingClient.first_name ?? '',
+          last_name: editingClient.last_name ?? '',
+          gender_id: editingClient.gender_id,
+          dob: editingClient.dob ? dayjs(editingClient.dob) : null,
+          ndis_number: editingClient.ndis_number ?? '',
+          email: editingClient.email ?? '',
+          phone_number: editingClient.phone_number ?? '',
+          address: editingClient.address ?? '',
+          unit_building: editingClient.unit_building ?? '',
+          pricing_region: editingClient.pricing_region ?? 'VIC',
+          is_active: editingClient.deactivated_at === null,
+        });
+      } else {
+        form.resetFields();
+        form.setFieldsValue({
+          first_name: '',
+          last_name: '',
+          ndis_number: '',
+          email: '',
+          phone_number: '',
+          address: '',
+          unit_building: '',
+          pricing_region: 'VIC',
+          is_active: true,
+        });
       }
-
-      message.success(clientId ? "Client updated" : "Client created");
-      router.push("/clients");
-      router.refresh();
-    } finally {
-      setSubmitting(false);
     }
-  }
+  }, [open, editingClient, form]);
+
+  const handleFinish = (values: any): void => {
+    const formattedValues: ClientInput = {
+      ...values,
+      dob: values.dob ? dayjs(values.dob).format('YYYY-MM-DD') : '',
+    };
+    onSubmit(formattedValues);
+  };
 
   return (
-    <Form<ClientFormValues>
-      form={form}
-      layout="vertical"
-      initialValues={
-        initialValues
-          ? { ...initialValues, dob: initialValues.dob ? dayjs(initialValues.dob) : undefined }
-          : undefined
+    <Drawer
+      title={editingClient ? 'Edit Participant' : 'Add Participant'}
+      placement="right"
+      styles={{ wrapper: { width: 520 } }}
+      onClose={onCancel}
+      open={open}
+      destroyOnClose
+      extra={
+        <Space>
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button type="primary" onClick={() => form.submit()} loading={loading}>
+            Save
+          </Button>
+        </Space>
       }
-      onFinish={onFinish}
-      className="max-w-xl"
     >
-      <Form.Item name="first_name" label="First name" rules={[{ required: true }]}>
-        <Input />
-      </Form.Item>
-      <Form.Item name="last_name" label="Last name" rules={[{ required: true }]}>
-        <Input />
-      </Form.Item>
-      <Form.Item name="gender_id" label="Gender" rules={[{ required: true }]}>
-        <Select
-          options={genders.map((g) => ({ value: g.id, label: g.label }))}
-          placeholder="Select gender"
-        />
-      </Form.Item>
-      <Form.Item name="dob" label="Date of birth" rules={[{ required: true }]}>
-        <DatePicker className="w-full" />
-      </Form.Item>
-      <Form.Item name="ndis_number" label="NDIS number" rules={[{ required: true }]}>
-        <Input maxLength={16} placeholder="Digits only" />
-      </Form.Item>
-      <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
-        <Input />
-      </Form.Item>
-      <Form.Item name="phone_number" label="Phone number">
-        <Input placeholder="Digits only, 3-16 digits" />
-      </Form.Item>
-      <Form.Item name="address" label="Address" rules={[{ required: true }]}>
-        <Input />
-      </Form.Item>
-      <Form.Item name="unit_building" label="Unit / Building">
-        <Input />
-      </Form.Item>
-      <Form.Item name="pricing_region" label="Pricing region" rules={[{ required: true }]}>
-        <Select
-          options={regions.map((r) => ({ value: r.code, label: r.label }))}
-          placeholder="Select pricing region"
-        />
-      </Form.Item>
-      <Form.Item>
-        <Button type="primary" htmlType="submit" loading={submitting}>
-          {clientId ? "Save changes" : "Create client"}
-        </Button>
-      </Form.Item>
-    </Form>
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={handleFinish}
+      >
+        <Form.Item
+          name="first_name"
+          label="First Name"
+          rules={[{ required: true, message: 'First name is required' }]}
+        >
+          <Input placeholder="John" />
+        </Form.Item>
+
+        <Form.Item
+          name="last_name"
+          label="Last Name"
+          rules={[{ required: true, message: 'Last name is required' }]}
+        >
+          <Input placeholder="Doe" />
+        </Form.Item>
+
+        <Form.Item
+          name="gender_id"
+          label="Gender"
+          rules={[{ required: true, message: 'Gender is required' }]}
+        >
+          <Select placeholder="Select gender">
+            {genders.map((g) => (
+              <Select.Option key={g.id} value={g.id}>
+                {g.label}
+              </Select.Option>
+            ))}
+          </Select>
+        </Form.Item>
+
+        <Form.Item
+          name="dob"
+          label="Date of Birth"
+          rules={[{ required: true, message: 'Date of birth is required' }]}
+        >
+          <DatePicker className="w-full" format="DD/MM/YYYY" />
+        </Form.Item>
+
+        <Form.Item
+          name="ndis_number"
+          label="NDIS Number"
+          rules={[
+            { required: true, message: 'NDIS number is required' },
+            { pattern: /^\d{1,16}$/, message: 'NDIS number must be digits only, max 16 digits' },
+          ]}
+        >
+          <Input placeholder="e.g. 4300123456" maxLength={16} />
+        </Form.Item>
+
+        <Form.Item
+          name="email"
+          label="Email"
+          rules={[
+            { required: true, message: 'Email is required' },
+            { type: 'email', message: 'Invalid email address' },
+          ]}
+        >
+          <Input placeholder="john.doe@example.com" />
+        </Form.Item>
+
+        <Form.Item
+          name="phone_number"
+          label="Phone Number"
+          rules={[
+            {
+              validator: (_, value) => {
+                if (!value || /^\d{3,16}$/.test(value)) {
+                  return Promise.resolve();
+                }
+                return Promise.reject(new Error('Phone number must contain 3 to 16 digits'));
+              },
+            },
+          ]}
+        >
+          <Input placeholder="0400000000" />
+        </Form.Item>
+
+        <Form.Item
+          name="address"
+          label="Address"
+          rules={[{ required: true, message: 'Address is required' }]}
+        >
+          <Input placeholder="123 Main Street" />
+        </Form.Item>
+
+        <Form.Item name="unit_building" label="Unit / Building">
+          <Input placeholder="Apt 4B" />
+        </Form.Item>
+
+        <Form.Item
+          name="pricing_region"
+          label="Pricing Region"
+          rules={[{ required: true, message: 'Pricing region is required' }]}
+        >
+          <Select placeholder="Select pricing region">
+            <Select.Option value="ACT">ACT</Select.Option>
+            <Select.Option value="NSW">NSW</Select.Option>
+            <Select.Option value="NT">NT</Select.Option>
+            <Select.Option value="QLD">QLD</Select.Option>
+            <Select.Option value="SA">SA</Select.Option>
+            <Select.Option value="TAS">TAS</Select.Option>
+            <Select.Option value="VIC">VIC</Select.Option>
+            <Select.Option value="WA">WA</Select.Option>
+            <Select.Option value="REMOTE">Remote</Select.Option>
+            <Select.Option value="VERY REMOTE">Very Remote</Select.Option>
+          </Select>
+        </Form.Item>
+
+        <Form.Item name="is_active" label="Active" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+      </Form>
+    </Drawer>
   );
-}
+};

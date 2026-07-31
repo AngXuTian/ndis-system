@@ -1,5 +1,5 @@
 import { rateSetRepository } from "@/repositories/rate-set.repository";
-import { validateRateSet, hasErrors, type RateSetInput } from "@/modules/rate-set/rate-set.validation";
+import { validateRateSet, hasErrors, type RateSetInput } from "@/validations/rate-set.validation";
 
 export class ValidationError extends Error {
   constructor(public errors: Record<string, string[]>) {

@@ -1,42 +1,56 @@
-import { NextRequest } from "next/server";
-import { providerService, ValidationError } from "@/services/provider.service";
-import { apiSuccess, apiValidationError, apiNotFound, apiServerError } from "@/lib/api-response";
+import { NextResponse } from 'next/server';
+import { providerService } from '@/services/provider.service';
+import { ZodError } from 'zod';
 
-interface Params {
-  params: Promise<{ id: string }>;
-}
-
-export async function GET(_req: NextRequest, { params }: Params) {
+export async function PUT(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const provider = await providerService.get(Number(id));
-    if (!provider) return apiNotFound("Provider");
-    return apiSuccess(provider);
-  } catch (err) {
-    return apiServerError(err);
+    const body: unknown = await req.json();
+    const updatedProvider = await providerService.updateProvider(Number(id), body);
+    return NextResponse.json({ data: updatedProvider });
+  } catch (error: unknown) {
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Validation failed',
+            details: error.flatten().fieldErrors,
+          },
+        },
+        { status: 400 }
+      );
+    }
+    if (error instanceof Error && error.message === 'ABN_EXISTS') {
+      return NextResponse.json(
+        { error: { code: 'ABN_EXISTS', message: 'ABN already exists' } },
+        { status: 400 }
+      );
+    }
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message } },
+      { status: 500 }
+    );
   }
 }
 
-export async function PUT(req: NextRequest, { params }: Params) {
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const body = await req.json();
-    const provider = await providerService.update(Number(id), body);
-    return apiSuccess(provider);
-  } catch (err) {
-    if (err instanceof ValidationError) return apiValidationError(err.errors);
-    if (err instanceof Error && err.message === "Provider not found") return apiNotFound("Provider");
-    return apiServerError(err);
-  }
-}
-
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  try {
-    const { id } = await params;
-    await providerService.remove(Number(id));
-    return apiSuccess({ deleted: true });
-  } catch (err) {
-    if (err instanceof Error && err.message === "Provider not found") return apiNotFound("Provider");
-    return apiServerError(err);
+    await providerService.deleteProvider(Number(id));
+    return NextResponse.json({ data: { success: true } });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message } },
+      { status: 500 }
+    );
   }
 }

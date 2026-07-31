@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { clientService } from '@/services/client.service';
+import { genderService } from '@/services/gender.service';
 import { ZodError } from 'zod';
 
 export async function PUT(
@@ -9,8 +9,8 @@ export async function PUT(
   try {
     const { id } = await params;
     const body: unknown = await req.json();
-    const updatedClient = await clientService.updateClient(Number(id), body);
-    return NextResponse.json({ data: updatedClient });
+    const updatedGender = await genderService.updateGender(Number(id), body);
+    return NextResponse.json({ data: updatedGender });
   } catch (error: unknown) {
     if (error instanceof ZodError) {
       return NextResponse.json(
@@ -21,12 +21,6 @@ export async function PUT(
             details: error.flatten().fieldErrors,
           },
         },
-        { status: 400 }
-      );
-    }
-    if (error instanceof Error && error.message === 'NDIS_NUMBER_EXISTS') {
-      return NextResponse.json(
-        { error: { code: 'NDIS_NUMBER_EXISTS', message: 'NDIS number already exists' } },
         { status: 400 }
       );
     }
@@ -44,7 +38,7 @@ export async function DELETE(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    await clientService.deleteClient(Number(id));
+    await genderService.deleteGender(Number(id));
     return NextResponse.json({ data: { success: true } });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

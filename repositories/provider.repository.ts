@@ -1,79 +1,120 @@
-import { db } from "@/db";
-import { sql } from "kysely";
-import type { NewProvider, ProviderUpdate } from "@/db/types";
+import { db } from '@/db';
+import { sql, Selectable } from 'kysely';
+import { Provider } from '@/db/types';
 
-export const providerRepository = {
-  async list(params: { search?: string; limit?: number; offset?: number }) {
-    let query = db
-      .selectFrom("provider")
+export interface CreateProviderPayload {
+  abn: string;
+  name: string;
+  email: string;
+  phone_number?: string | null;
+  address: string;
+  unit_building?: string | null;
+  deactivated_at?: string | null;
+}
+
+export interface UpdateProviderPayload {
+  abn?: string;
+  name?: string;
+  email?: string;
+  phone_number?: string | null;
+  address?: string;
+  unit_building?: string | null;
+  deactivated_at?: string | null;
+}
+
+export class ProviderRepository {
+  async findAll(): Promise<Selectable<Provider>[]> {
+    return await db
+      .selectFrom('provider')
       .selectAll()
-      .where("deleted_at", "is", null);
+      .where('deleted_at', 'is', null)
+      .orderBy('id', 'desc')
+      .execute();
+  }
 
-    if (params.search) {
-      const tokens = params.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
-      for (const token of tokens) {
-        query = query.where("name_parts", "@>", [token] as unknown as string[]);
-      }
+  async findById(id: number): Promise<Selectable<Provider> | undefined> {
+    return await db
+      .selectFrom('provider')
+      .selectAll()
+      .where('id', '=', id)
+      .where('deleted_at', 'is', null)
+      .executeTakeFirst();
+  }
+
+  async findByAbn(
+    abn: string,
+    excludeId?: number
+  ): Promise<Selectable<Provider> | undefined> {
+    let query = db
+      .selectFrom('provider')
+      .selectAll()
+      .where('abn', '=', abn)
+      .where('deleted_at', 'is', null);
+
+    if (excludeId) {
+      query = query.where('id', '!=', excludeId);
     }
 
-    const total = await db
-      .selectFrom("provider")
-      .select(db.fn.countAll<number>().as("count"))
-      .where("deleted_at", "is", null)
-      .executeTakeFirst();
+    return await query.executeTakeFirst();
+  }
 
-    const rows = await query
-      .orderBy("created_at", "desc")
-      .limit(params.limit ?? 20)
-      .offset(params.offset ?? 0)
-      .execute();
+  async create(data: CreateProviderPayload): Promise<Selectable<Provider>> {
+  const namePartsArray = data.name.trim().split(/\s+/).filter(Boolean);
 
-    return { rows, total: Number(total?.count ?? 0) };
-  },
+  return await db
+    .insertInto('provider')
+    .values({
+      abn: data.abn,
+      name: data.name,
+      email: data.email,
+      phone_number: data.phone_number ?? null,
+      address: data.address,
+      unit_building: data.unit_building ?? null,
+      name_parts: namePartsArray,
+      deactivated_at: data.deactivated_at ?? null,
+      updated_at: sql`now()`,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
 
-  async findById(id: number) {
-    return db
-      .selectFrom("provider")
-      .selectAll()
-      .where("id", "=", id)
-      .where("deleted_at", "is", null)
-      .executeTakeFirst();
-  },
+  async update(
+    id: number,
+    data: UpdateProviderPayload
+  ): Promise<Selectable<Provider> | undefined> {
+    const { name, ...rest } = data;
 
-  async findByAbn(abn: string) {
-    return db
-      .selectFrom("provider")
-      .selectAll()
-      .where("abn", "=", abn)
-      .where("deleted_at", "is", null)
-      .execute();
-  },
+    const updateData: Record<string, unknown> = {
+      ...rest,
+      updated_at: sql`now()`,
+    };
 
-  async create(input: NewProvider) {
-    return db
-      .insertInto("provider")
-      .values(input)
-      .returningAll()
-      .executeTakeFirstOrThrow();
-  },
+    if (name !== undefined) {
+      updateData.name = name;
+      updateData.name_parts = name.trim().split(/\s+/).filter(Boolean);
+    }
 
-  async update(id: number, input: ProviderUpdate) {
-    return db
-      .updateTable("provider")
-      .set({ ...input, updated_at: sql`now()` })
-      .where("id", "=", id)
-      .where("deleted_at", "is", null)
+    return await db
+      .updateTable('provider')
+      .set(updateData)
+      .where('id', '=', id)
+      .where('deleted_at', 'is', null)
       .returningAll()
       .executeTakeFirst();
-  },
+  }
 
-  async softDelete(id: number) {
-    return db
-      .updateTable("provider")
-      .set({ deleted_at: sql`now()` })
-      .where("id", "=", id)
-      .where("deleted_at", "is", null)
+  async softDelete(id: number): Promise<Selectable<Provider> | undefined> {
+    return await db
+      .updateTable('provider')
+      .set({
+        deleted_at: sql`now()`,
+        updated_at: sql`now()`,
+      })
+      .where('id', '=', id)
+      .where('deleted_at', 'is', null)
       .returningAll()
       .executeTakeFirst();
-  },
-};
+  }
+}
+
+export const providerRepository = new ProviderRepository();

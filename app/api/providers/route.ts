@@ -1,28 +1,50 @@
-import { NextRequest } from "next/server";
-import { providerService, ValidationError } from "@/services/provider.service";
-import { apiSuccess, apiValidationError, apiServerError } from "@/lib/api-response";
+import { NextResponse } from 'next/server';
+import { providerService } from '@/services/provider.service';
+import { ZodError } from 'zod';
 
-export async function GET(req: NextRequest) {
+export async function GET(): Promise<NextResponse> {
   try {
-    const { searchParams } = new URL(req.url);
-    const search = searchParams.get("search") ?? undefined;
-    const page = Number(searchParams.get("page") ?? 1);
-    const pageSize = Number(searchParams.get("pageSize") ?? 20);
-
-    const { rows, total } = await providerService.list({ search, page, pageSize });
-    return apiSuccess(rows, { total, page, pageSize });
-  } catch (err) {
-    return apiServerError(err);
+    const providers = await providerService.getAllProviders();
+    return NextResponse.json({ data: providers });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message } },
+      { status: 500 }
+    );
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request): Promise<NextResponse> {
   try {
-    const body = await req.json();
-    const provider = await providerService.create(body);
-    return apiSuccess(provider, undefined, 201);
-  } catch (err) {
-    if (err instanceof ValidationError) return apiValidationError(err.errors);
-    return apiServerError(err);
+    const body: unknown = await req.json();
+    const newProvider = await providerService.createProvider(body);
+    return NextResponse.json({ data: newProvider }, { status: 201 });
+  } catch (error: unknown) {
+    console.error('POST /api/providers Error:', error); // <-- Logs precise Zod errors to terminal
+
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Validation failed',
+            details: error.flatten().fieldErrors,
+          },
+        },
+        { status: 400 }
+      );
+    }
+    if (error instanceof Error && error.message === 'ABN_EXISTS') {
+      return NextResponse.json(
+        { error: { code: 'ABN_EXISTS', message: 'ABN already exists' } },
+        { status: 400 }
+      );
+    }
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message } },
+      { status: 500 }
+    );
   }
 }

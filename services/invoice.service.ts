@@ -7,7 +7,7 @@ import {
   type InvoiceInput,
   type InvoiceItemInput,
   type ValidationErrors,
-} from "@/modules/invoice/invoice.validation";
+} from "@/validations/invoice.validation";
 import { multiply2, sum2, isValidDecimal } from "@/lib/money";
 import { db } from "@/db";
 

@@ -1,91 +1,140 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { Form, Input, Button, message } from "antd";
-import { useRouter } from "next/navigation";
+import React, { useEffect } from 'react';
+import { Drawer, Form, Input, Switch, Button, Space } from 'antd';
+import { Selectable } from 'kysely';
+import { Provider } from '@/db/types';
+import { ProviderInput } from '@/validations/provider.validation';
 
-interface ProviderFormValues {
-  abn: string;
-  name: string;
-  email: string;
-  phone_number?: string;
-  address: string;
-  unit_building?: string;
+interface ProviderFormProps {
+  open: boolean;
+  editingProvider: Selectable<Provider> | null;
+  onCancel: () => void;
+  onSubmit: (values: ProviderInput) => Promise<void>;
+  loading?: boolean;
 }
 
-export function ProviderForm({
-  initialValues,
-  providerId,
-}: {
-  initialValues?: Partial<ProviderFormValues>;
-  providerId?: number;
-}) {
-  const [form] = Form.useForm<ProviderFormValues>();
-  const [submitting, setSubmitting] = useState(false);
-  const router = useRouter();
+export const ProviderForm: React.FC<ProviderFormProps> = ({
+  open,
+  editingProvider,
+  onCancel,
+  onSubmit,
+  loading,
+}) => {
+  const [form] = Form.useForm<ProviderInput>();
 
-  async function onFinish(values: ProviderFormValues) {
-    setSubmitting(true);
-    try {
-      const res = await fetch(providerId ? `/api/providers/${providerId}` : "/api/providers", {
-        method: providerId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      const json = await res.json();
-
-      if (!res.ok) {
-        if (json.error?.details) {
-          form.setFields(
-            Object.entries(json.error.details).map(([field, errs]) => ({
-              name: field as keyof ProviderFormValues,
-              errors: errs as string[],
-            }))
-          );
-        }
-        message.error(json.error?.message ?? "Failed to save provider");
-        return;
+  useEffect(() => {
+    if (open) {
+      if (editingProvider) {
+        form.setFieldsValue({
+          abn: editingProvider.abn,
+          name: editingProvider.name,
+          email: editingProvider.email ?? '',
+          phone_number: editingProvider.phone_number ?? '',
+          address: editingProvider.address ?? '',
+          unit_building: editingProvider.unit_building ?? '',
+          is_active: editingProvider.deactivated_at === null,
+        });
+      } else {
+        form.resetFields();
+        form.setFieldsValue({
+          abn: '',
+          name: '',
+          email: '',
+          phone_number: '',
+          address: '',
+          unit_building: '',
+          is_active: true,
+        });
       }
-
-      message.success(providerId ? "Provider updated" : "Provider created");
-      router.push("/providers");
-      router.refresh();
-    } finally {
-      setSubmitting(false);
     }
-  }
+  }, [open, editingProvider, form]);
 
   return (
-    <Form<ProviderFormValues>
-      form={form}
-      layout="vertical"
-      initialValues={initialValues}
-      onFinish={onFinish}
-      className="max-w-xl"
+    <Drawer
+      title={editingProvider ? 'Edit Provider' : 'Add Provider'}
+      placement="right"
+      styles={{ wrapper: { width: 520 } }}
+      onClose={onCancel}
+      open={open}
+      destroyOnClose
+      extra={
+        <Space>
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button type="primary" onClick={() => form.submit()} loading={loading}>
+            Save
+          </Button>
+        </Space>
+      }
     >
-      <Form.Item name="abn" label="ABN" rules={[{ required: true }]}>
-        <Input maxLength={11} placeholder="Digits only" />
-      </Form.Item>
-      <Form.Item name="name" label="Name" rules={[{ required: true }]}>
-        <Input />
-      </Form.Item>
-      <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
-        <Input />
-      </Form.Item>
-      <Form.Item name="phone_number" label="Phone number">
-        <Input placeholder="Digits only, 3-16 digits" />
-      </Form.Item>
-      <Form.Item name="address" label="Address" rules={[{ required: true }]}>
-        <Input />
-      </Form.Item>
-      <Form.Item name="unit_building" label="Unit / Building">
-        <Input />
-      </Form.Item>
-      <Form.Item>
-        <Button type="primary" htmlType="submit" loading={submitting}>
-          {providerId ? "Save changes" : "Create provider"}
-        </Button>
-      </Form.Item>
-    </Form>
+      <Form<ProviderInput>
+        form={form}
+        layout="vertical"
+        onFinish={onSubmit}
+      >
+        <Form.Item
+          name="abn"
+          label="ABN"
+          rules={[
+            { required: true, message: 'ABN is required' },
+            { pattern: /^\d{1,11}$/, message: 'ABN must be digits only and max 11 digits' },
+          ]}
+        >
+          <Input placeholder="e.g. 73628557755" maxLength={11} />
+        </Form.Item>
+
+        <Form.Item
+          name="name"
+          label="Provider Name"
+          rules={[{ required: true, message: 'Provider name is required' }]}
+        >
+          <Input placeholder="e.g. Serenity Life Balance Advisory Pty Ltd" />
+        </Form.Item>
+
+        <Form.Item
+          name="email"
+          label="Email"
+          rules={[
+            { required: true, message: 'Email is required' },
+            { type: 'email', message: 'Invalid email' },
+          ]}
+        >
+          <Input placeholder="contact@provider.com" />
+        </Form.Item>
+
+        <Form.Item
+          name="phone_number"
+          label="Phone Number"
+          rules={[
+            {
+              validator: (_, value) => {
+                if (!value || /^\d{3,16}$/.test(value)) {
+                  return Promise.resolve();
+                }
+                return Promise.reject(new Error('Phone number must contain 3 to 16 digits'));
+              },
+            },
+          ]}
+        >
+          <Input placeholder="0390000000" />
+        </Form.Item>
+
+        <Form.Item
+          name="address"
+          label="Address"
+          rules={[{ required: true, message: 'Address is required' }]}
+        >
+          <Input placeholder="123 Business Rd" />
+        </Form.Item>
+
+        <Form.Item name="unit_building" label="Unit / Building">
+          <Input placeholder="Suite 101" />
+        </Form.Item>
+
+        <Form.Item name="is_active" label="Active" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+      </Form>
+    </Drawer>
   );
-}
+};

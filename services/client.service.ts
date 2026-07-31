@@ -1,70 +1,77 @@
-import { clientRepository } from "@/repositories/client.repository";
-import { validateClient, hasErrors, type ClientInput } from "@/modules/client/client.validation";
+import { clientRepository, PaginatedResult } from '@/repositories/client.repository';
+import { clientSchema, ClientInput } from '@/validations/client.validation';
+import { Client } from '@/db/types';
+import { Selectable } from 'kysely';
 
-export class ValidationError extends Error {
-  constructor(public errors: Record<string, string[]>) {
-    super("Validation failed");
-    this.name = "ValidationError";
+export class ClientService {
+  async getAllClients(): Promise<Selectable<Client>[]> {
+    return await clientRepository.findAll();
+  }
+
+  async list(options?: {
+    page?: number;
+    pageSize?: number;
+  }): Promise<PaginatedResult<Selectable<Client>>> {
+    if (options && (options.page || options.pageSize)) {
+      return await clientRepository.findPaginated(options);
+    }
+    const rows = await clientRepository.findAll();
+    return {
+      rows,
+      total: rows.length,
+    };
+  }
+
+  async getClientById(id: number): Promise<Selectable<Client>> {
+    const client = await clientRepository.findById(id);
+    if (!client) {
+      throw new Error('CLIENT_NOT_FOUND');
+    }
+    return client;
+  }
+
+  async createClient(rawInput: unknown): Promise<Selectable<Client>> {
+    const validated: ClientInput = clientSchema.parse(rawInput);
+
+    const existing = await clientRepository.findByNdisNumber(validated.ndis_number);
+    if (existing) {
+      throw new Error('NDIS_NUMBER_EXISTS');
+    }
+
+    const { is_active, dob, ...rest } = validated;
+
+    return await clientRepository.create({
+      ...rest,
+      dob: new Date(dob).toISOString().split('T')[0],
+      deactivated_at: is_active ? null : new Date().toISOString(),
+    });
+  }
+
+  async updateClient(
+    id: number,
+    rawInput: unknown
+  ): Promise<Selectable<Client> | undefined> {
+    await this.getClientById(id);
+    const validated: ClientInput = clientSchema.parse(rawInput);
+
+    const existing = await clientRepository.findByNdisNumber(validated.ndis_number, id);
+    if (existing) {
+      throw new Error('NDIS_NUMBER_EXISTS');
+    }
+
+    const { is_active, dob, ...rest } = validated;
+
+    return await clientRepository.update(id, {
+      ...rest,
+      dob: new Date(dob).toISOString().split('T')[0],
+      deactivated_at: is_active ? null : new Date().toISOString(),
+    });
+  }
+
+  async deleteClient(id: number): Promise<Selectable<Client> | undefined> {
+    await this.getClientById(id);
+    return await clientRepository.softDelete(id);
   }
 }
 
-export const clientService = {
-  async list(params: { search?: string; page?: number; pageSize?: number }) {
-    const pageSize = params.pageSize ?? 20;
-    const page = params.page ?? 1;
-    return clientRepository.list({
-      search: params.search,
-      limit: pageSize,
-      offset: (page - 1) * pageSize,
-    });
-  },
-
-  async get(id: number) {
-    return clientRepository.findById(id);
-  },
-
-  async create(input: ClientInput) {
-    const errors = validateClient(input);
-    if (hasErrors(errors)) throw new ValidationError(errors);
-
-    return clientRepository.create({
-      first_name: input.first_name!.trim(),
-      last_name: input.last_name!.trim(),
-      gender_id: input.gender_id!,
-      dob: input.dob!,
-      ndis_number: input.ndis_number!.trim(),
-      email: input.email!.trim(),
-      phone_number: input.phone_number?.trim() || null,
-      address: input.address!.trim(),
-      unit_building: input.unit_building?.trim() || null,
-      pricing_region: input.pricing_region!,
-    });
-  },
-
-  async update(id: number, input: ClientInput) {
-    const errors = validateClient(input);
-    if (hasErrors(errors)) throw new ValidationError(errors);
-
-    const updated = await clientRepository.update(id, {
-      first_name: input.first_name!.trim(),
-      last_name: input.last_name!.trim(),
-      gender_id: input.gender_id!,
-      dob: input.dob!,
-      ndis_number: input.ndis_number!.trim(),
-      email: input.email!.trim(),
-      phone_number: input.phone_number?.trim() || null,
-      address: input.address!.trim(),
-      unit_building: input.unit_building?.trim() || null,
-      pricing_region: input.pricing_region!,
-    });
-
-    if (!updated) throw new Error("Client not found");
-    return updated;
-  },
-
-  async remove(id: number) {
-    const deleted = await clientRepository.softDelete(id);
-    if (!deleted) throw new Error("Client not found");
-    return deleted;
-  },
-};
+export const clientService = new ClientService();

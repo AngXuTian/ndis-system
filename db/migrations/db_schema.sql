@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS gender (
   label text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz,
   deactivated_at timestamptz
 );
 

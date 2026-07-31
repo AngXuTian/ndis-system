@@ -1,28 +1,60 @@
-import { NextRequest } from "next/server";
-import { clientService, ValidationError } from "@/services/client.service";
-import { apiSuccess, apiValidationError, apiServerError } from "@/lib/api-response";
+import { NextResponse } from 'next/server';
+import { clientService } from '@/services/client.service';
+import { ZodError } from 'zod';
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(req.url);
-    const search = searchParams.get("search") ?? undefined;
-    const page = Number(searchParams.get("page") ?? 1);
-    const pageSize = Number(searchParams.get("pageSize") ?? 20);
+    const page = searchParams.get('page');
+    const pageSize = searchParams.get('pageSize');
 
-    const { rows, total } = await clientService.list({ search, page, pageSize });
-    return apiSuccess(rows, { total, page, pageSize });
-  } catch (err) {
-    return apiServerError(err);
+    if (page || pageSize) {
+      const result = await clientService.list({
+        page: page ? Number(page) : 1,
+        pageSize: pageSize ? Number(pageSize) : 10,
+      });
+      return NextResponse.json({ data: result });
+    }
+
+    const clients = await clientService.getAllClients();
+    return NextResponse.json({ data: clients });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message } },
+      { status: 500 }
+    );
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request): Promise<NextResponse> {
   try {
-    const body = await req.json();
-    const client = await clientService.create(body);
-    return apiSuccess(client, undefined, 201);
-  } catch (err) {
-    if (err instanceof ValidationError) return apiValidationError(err.errors);
-    return apiServerError(err);
+    const body: unknown = await req.json();
+    const newClient = await clientService.createClient(body);
+    return NextResponse.json({ data: newClient }, { status: 201 });
+  } catch (error: unknown) {
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Validation failed',
+            details: error.flatten().fieldErrors,
+          },
+        },
+        { status: 400 }
+      );
+    }
+    if (error instanceof Error && error.message === 'NDIS_NUMBER_EXISTS') {
+      return NextResponse.json(
+        { error: { code: 'NDIS_NUMBER_EXISTS', message: 'NDIS number already exists' } },
+        { status: 400 }
+      );
+    }
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message } },
+      { status: 500 }
+    );
   }
 }
