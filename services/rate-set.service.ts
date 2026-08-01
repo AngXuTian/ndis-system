@@ -1,17 +1,15 @@
-import { db } from '@/db';
+import { rateSetRepository } from '@/repositories/rate-set.repository';
 
 export class RateSetService {
   async findAll() {
-    return await db
-      .selectFrom('rate_set')
-      .selectAll()
-      .where('deleted_at', 'is', null)
-      .orderBy('id', 'desc')
-      .execute();
+    const res = await rateSetRepository.list({ limit: 1000, offset: 0 });
+    return res.rows;
   }
 
-  async list() {
-    return await this.findAll();
+  async list(options?: { pageSize?: number; page?: number }) {
+    const limit = options?.pageSize ?? 20;
+    const offset = ((options?.page ?? 1) - 1) * limit;
+    return await rateSetRepository.list({ limit, offset });
   }
 }
 

@@ -7,6 +7,14 @@ export class InvoiceService {
     return await invoiceRepository.findAll();
   }
 
+  async list(options?: { page?: number; pageSize?: number }) {
+    const rows = await invoiceRepository.findAll();
+    return {
+      rows: options?.pageSize ? rows.slice(0, options.pageSize) : rows,
+      total: rows.length,
+    };
+  }
+
   async getInvoiceById(id: number) {
     const invoice = await invoiceRepository.findById(id);
     if (!invoice) {
@@ -17,13 +25,10 @@ export class InvoiceService {
 
   async saveInvoice(rawInput: any, id?: number) {
     const isCompleted = rawInput.status === 'completed';
-
-    // 1. Validate input payload
     const validated = isCompleted
       ? invoiceCompleteSchema.parse(rawInput)
       : invoiceDraftSchema.parse(rawInput);
 
-    // 2. Enforce Unique Invoice Number per Provider (when provider_id is set)
     if (validated.provider_id) {
       const isUnique = await invoiceRepository.checkInvoiceNumberUnique(
         validated.provider_id,
@@ -35,7 +40,6 @@ export class InvoiceService {
       }
     }
 
-    // Determine client pricing region for max_rate lookup
     let pricingRegion = 'VIC';
     if (validated.client_id) {
       const client = await db
@@ -49,7 +53,6 @@ export class InvoiceService {
     let derivedTotalAmount: number | null = null;
     const processedItems = [];
 
-    // 3. Process line items if available
     if (validated.items && validated.items.length > 0) {
       let runningTotal = 0;
       let hasValidItemRates = false;
@@ -59,7 +62,6 @@ export class InvoiceService {
         let maxRate = item.max_rate ?? null;
         let itemAmount = 0;
 
-        // Calculate item amount if unit and input_rate are provided
         if (
           item.unit !== null &&
           item.unit !== undefined &&
@@ -71,7 +73,6 @@ export class InvoiceService {
           runningTotal += itemAmount;
         }
 
-        // Rate set resolution via date range
         if (item.start_date && item.end_date) {
           const matchingRateSets = await invoiceRepository.findMatchingRateSets(
             item.start_date,
@@ -89,7 +90,6 @@ export class InvoiceService {
           }
         }
 
-        // Lookup max_rate
         if (rateSetId && item.support_item_id && item.start_date) {
           const foundMaxRate = await invoiceRepository.findMaxRatePrice(
             rateSetId,
@@ -108,18 +108,17 @@ export class InvoiceService {
         });
       }
 
-      if (hasValidItemRates) {
-        derivedTotalAmount = Number(runningTotal.toFixed(2));
-      } else {
-        derivedTotalAmount = 0.00;
-      }
+      derivedTotalAmount = hasValidItemRates ? Number(runningTotal.toFixed(2)) : 0.0;
     } else {
-      // If no items exist, derived amount defaults to 0.00
-      derivedTotalAmount = 0.00;
+      derivedTotalAmount = 0.0;
     }
 
-    // 4. Completed validation check (if expected_amount is specified and items exist)
-    if (isCompleted && processedItems.length > 0 && validated.expected_amount !== null && validated.expected_amount !== undefined) {
+    if (
+      isCompleted &&
+      processedItems.length > 0 &&
+      validated.expected_amount !== null &&
+      validated.expected_amount !== undefined
+    ) {
       const expected = Number(Number(validated.expected_amount).toFixed(2));
       if (derivedTotalAmount !== null && expected !== derivedTotalAmount) {
         throw new Error(
