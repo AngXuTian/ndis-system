@@ -23,6 +23,10 @@ export interface UpdateProviderPayload {
 }
 
 export class ProviderRepository {
+  async list() {
+    return await this.findAll(); 
+  }
+
   async findAll(): Promise<Selectable<Provider>[]> {
     return await db
       .selectFrom('provider')

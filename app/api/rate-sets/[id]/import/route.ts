@@ -1,48 +1,31 @@
-import { NextRequest } from "next/server";
-import { rateSetRepository } from "@/repositories/rate-set.repository";
-import { importNdisCatalogue } from "@/modules/rate-set/ndis-catalogue-import";
-import { apiSuccess, apiNotFound, apiError, apiServerError } from "@/lib/api-response";
+import { rateSetImportService } from '@/services/rate-set-import.service';
+import { NextResponse } from 'next/server';
 
-interface Params {
-  params: Promise<{ id: string }>;
-}
 
-export const runtime = "nodejs";
-export const maxDuration = 120;
-
-export async function POST(req: NextRequest, { params }: Params) {
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
   try {
     const { id } = await params;
     const rateSetId = Number(id);
 
-    const rateSet = await rateSetRepository.findById(rateSetId);
-    if (!rateSet) return apiNotFound("Rate set");
-
     const formData = await req.formData();
-    const file = formData.get("file");
+    const file = formData.get('file') as File | null;
 
-    if (!file || typeof file === "string") {
-      return apiError("VALIDATION_ERROR", "A file is required.", { file: ["File is required"] }, 422);
-    }
-
-    const allowedTypes = [
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "application/vnd.ms-excel",
-    ];
-    if (file.type && !allowedTypes.includes(file.type) && !file.name?.endsWith(".xlsx")) {
-      return apiError(
-        "VALIDATION_ERROR",
-        "Only .xlsx files are supported.",
-        { file: ["Only .xlsx files are supported"] },
-        422
+    if (!file) {
+      return NextResponse.json(
+        { error: { code: 'BAD_REQUEST', message: 'No Excel file provided' } },
+        { status: 400 }
       );
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const summary = await importNdisCatalogue(rateSetId, buffer);
+    const result = await rateSetImportService.importExcelToRateSet(rateSetId, buffer);
 
-    return apiSuccess(summary);
-  } catch (err) {
-    return apiServerError(err);
+    return NextResponse.json({ data: result }, { status: 200 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error during import';
+    return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message } }, { status: 500 });
   }
 }

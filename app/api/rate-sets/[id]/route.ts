@@ -1,42 +1,94 @@
-import { NextRequest } from "next/server";
-import { rateSetService, ValidationError } from "@/services/rate-set.service";
-import { apiSuccess, apiValidationError, apiNotFound, apiServerError } from "@/lib/api-response";
+import { NextResponse } from 'next/server';
+import { db } from '@/db';
 
-interface Params {
-  params: Promise<{ id: string }>;
-}
+import { sql } from 'kysely';
+import { rateSetImportService } from '@/services/rate-set-import.service';
 
-export async function GET(_req: NextRequest, { params }: Params) {
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const result = await rateSetService.get(Number(id));
-    if (!result) return apiNotFound("Rate set");
-    return apiSuccess(result);
-  } catch (err) {
-    return apiServerError(err);
+    const rateSet = await db
+      .selectFrom('rate_set')
+      .selectAll()
+      .where('id', '=', Number(id))
+      .where('deleted_at', 'is', null)
+      .executeTakeFirst();
+
+    if (!rateSet) {
+      return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Rate set not found' } }, { status: 404 });
+    }
+
+    return NextResponse.json({ data: rateSet });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message } }, { status: 500 });
   }
 }
 
-export async function PUT(req: NextRequest, { params }: Params) {
+export async function PUT(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const body = await req.json();
-    const rateSet = await rateSetService.update(Number(id), body);
-    return apiSuccess(rateSet);
-  } catch (err) {
-    if (err instanceof ValidationError) return apiValidationError(err.errors);
-    if (err instanceof Error && err.message === "Rate set not found") return apiNotFound("Rate set");
-    return apiServerError(err);
+    const rateSetId = Number(id);
+
+    const formData = await req.formData();
+    const name = formData.get('name') as string;
+    const description = formData.get('description') as string;
+    const startDate = formData.get('start_date') as string;
+    const endDate = formData.get('end_date') as string;
+    const active = formData.get('active') === 'true';
+    const file = formData.get('file') as File | null;
+
+    const updated = await db
+      .updateTable('rate_set')
+      .set({
+        name,
+        description: description || null,
+        start_date: new Date(startDate),
+        end_date: endDate ? new Date(endDate) : null,
+        deactivated_at: active ? null : new Date(),
+        updated_at: sql`now()`,
+      })
+      .where('id', '=', rateSetId)
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    if (file) {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      await rateSetImportService.importExcelToRateSet(rateSetId, buffer);
+    }
+
+    return NextResponse.json({ data: updated });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message } }, { status: 500 });
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
   try {
     const { id } = await params;
-    await rateSetService.remove(Number(id));
-    return apiSuccess({ deleted: true });
-  } catch (err) {
-    if (err instanceof Error && err.message === "Rate set not found") return apiNotFound("Rate set");
-    return apiServerError(err);
+    await db
+      .updateTable('rate_set')
+      .set({
+        deactivated_at: sql`now()`,
+        deleted_at: sql`now()`,
+        updated_at: sql`now()`,
+      })
+      .where('id', '=', Number(id))
+      .execute();
+
+    return NextResponse.json({ data: { success: true } });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message } }, { status: 500 });
   }
 }

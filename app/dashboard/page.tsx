@@ -1,7 +1,7 @@
 import { clientService } from "@/services/client.service";
 import { providerService } from "@/services/provider.service";
 import { invoiceService } from "@/services/invoice.service";
-import { rateSetService } from "@/services/rate-set.service";
+
 import { DashboardView, type RecentInvoiceRow } from "@/modules/dashboard/DashboardView";
 
 export const dynamic = "force-dynamic";

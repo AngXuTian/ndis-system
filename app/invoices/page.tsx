@@ -6,6 +6,10 @@ import { UploadOutlined, HistoryOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { InvoiceForm } from '@/modules/invoice/InvoiceForm';
+import { ClientForm } from '@/modules/client/ClientForm';
+import { ProviderForm } from '@/modules/provider/ProviderForm';
+import { ClientInput } from '@/validations/client.validation';
+import { ProviderInput } from '@/validations/provider.validation';
 
 interface InvoiceRecord {
   id: number;
@@ -27,10 +31,16 @@ interface OptionItem {
   name: string;
 }
 
+interface GenderOption {
+  id: number;
+  label: string;
+}
+
 export default function InvoicesPage(): React.ReactElement {
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [participants, setParticipants] = useState<OptionItem[]>([]);
   const [providers, setProviders] = useState<OptionItem[]>([]);
+  const [genders, setGenders] = useState<GenderOption[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   // Filters
@@ -40,25 +50,36 @@ export default function InvoicesPage(): React.ReactElement {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<string>('ALL');
 
-  // Drawer Form State
-  const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
+  // Invoice Form Drawer State
+  const [isInvoiceDrawerOpen, setIsInvoiceDrawerOpen] = useState<boolean>(false);
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null);
+
+  // Client Edit Drawer State
+  const [isClientDrawerOpen, setIsClientDrawerOpen] = useState<boolean>(false);
+  const [editingClient, setEditingClient] = useState<any | null>(null);
+  const [submittingClient, setSubmittingClient] = useState<boolean>(false);
+
+  // Provider Edit Drawer State
+  const [isProviderDrawerOpen, setIsProviderDrawerOpen] = useState<boolean>(false);
+  const [editingProvider, setEditingProvider] = useState<any | null>(null);
+  const [submittingProvider, setSubmittingProvider] = useState<boolean>(false);
 
   const fetchInvoices = async (): Promise<void> => {
     setLoading(true);
     try {
-      const [invRes, clientRes, provRes] = await Promise.all([
+      const [invRes, clientRes, provRes, genderRes] = await Promise.all([
         fetch('/api/invoices'),
         fetch('/api/clients'),
         fetch('/api/providers'),
+        fetch('/api/genders'),
       ]);
 
       const invJson = await invRes.json();
       const clientJson = await clientRes.json();
       const provJson = await provRes.json();
+      const genderJson = await genderRes.json();
 
       if (invJson.data) {
-        // Assign source as 'Manual' or 'Uploaded' based on record metadata
         const formattedInvoices = invJson.data.map((inv: any) => ({
           ...inv,
           source: inv.source || (inv.id % 2 === 0 ? 'Uploaded' : 'Manual'),
@@ -83,6 +104,8 @@ export default function InvoicesPage(): React.ReactElement {
           }))
         );
       }
+
+      if (genderJson.data) setGenders(genderJson.data);
     } catch {
       message.error('Failed to load invoices data');
     } finally {
@@ -94,14 +117,92 @@ export default function InvoicesPage(): React.ReactElement {
     fetchInvoices();
   }, []);
 
-  const handleOpenAdd = () => {
+  // Open Handlers
+  const handleOpenAddInvoice = () => {
     setEditingInvoiceId(null);
-    setIsDrawerOpen(true);
+    setIsInvoiceDrawerOpen(true);
   };
 
-  const handleOpenEdit = (id: number) => {
+  const handleOpenEditInvoice = (id: number) => {
     setEditingInvoiceId(id);
-    setIsDrawerOpen(true);
+    setIsInvoiceDrawerOpen(true);
+  };
+
+  const handleOpenEditClient = async (clientId: number) => {
+    try {
+      const res = await fetch(`/api/clients/${clientId}`);
+      const json = await res.json();
+      if (json.data) {
+        setEditingClient(json.data);
+        setIsClientDrawerOpen(true);
+      } else {
+        message.error('Participant details not found');
+      }
+    } catch {
+      message.error('Failed to load participant details');
+    }
+  };
+
+  const handleOpenEditProvider = async (providerId: number) => {
+    try {
+      const res = await fetch(`/api/providers/${providerId}`);
+      const json = await res.json();
+      if (json.data) {
+        setEditingProvider(json.data);
+        setIsProviderDrawerOpen(true);
+      } else {
+        message.error('Provider details not found');
+      }
+    } catch {
+      message.error('Failed to load provider details');
+    }
+  };
+
+  // Submit Handlers
+  const handleClientSubmit = async (values: ClientInput): Promise<void> => {
+    setSubmittingClient(true);
+    try {
+      const res = await fetch(`/api/clients/${editingClient.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+
+      if (res.ok) {
+        message.success('Participant updated successfully');
+        setIsClientDrawerOpen(false);
+        fetchInvoices();
+      } else {
+        message.error('Failed to update participant');
+      }
+    } catch {
+      message.error('An error occurred');
+    } finally {
+      setSubmittingClient(false);
+    }
+  };
+
+  const handleProviderSubmit = async (values: ProviderInput): Promise<void> => {
+    setSubmittingProvider(true);
+    try {
+      const res = await fetch(`/api/providers/${editingProvider.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+
+      if (res.ok) {
+        message.success('Provider updated successfully');
+        setIsProviderDrawerOpen(false);
+        fetchInvoices();
+      } else {
+        message.error('Failed to update provider');
+      }
+    } catch {
+      message.error('An error occurred');
+    } finally {
+      setSubmittingProvider(false);
+    }
   };
 
   const handleDelete = async (id: number): Promise<void> => {
@@ -145,9 +246,12 @@ export default function InvoicesPage(): React.ReactElement {
       title: 'Participant',
       key: 'participant',
       render: (_, record) => {
-        if (!record.client_first_name) return '-';
+        if (!record.client_first_name || !record.client_id) return '-';
         return (
-          <span className="text-blue-500 hover:underline cursor-pointer">
+          <span
+            className="text-blue-500 hover:underline cursor-pointer"
+            onClick={() => handleOpenEditClient(record.client_id!)}
+          >
             {record.client_first_name} {record.client_last_name}{' '}
             {record.client_ndis_number ? `(${record.client_ndis_number})` : ''}
           </span>
@@ -158,9 +262,12 @@ export default function InvoicesPage(): React.ReactElement {
       title: 'Provider',
       key: 'provider',
       render: (_, record) => {
-        if (!record.provider_name) return '-';
+        if (!record.provider_name || !record.provider_id) return '-';
         return (
-          <span className="text-blue-500 hover:underline cursor-pointer">
+          <span
+            className="text-blue-500 hover:underline cursor-pointer"
+            onClick={() => handleOpenEditProvider(record.provider_id!)}
+          >
             {record.provider_name}{' '}
             {record.provider_abn ? `(${record.provider_abn})` : ''}
           </span>
@@ -203,7 +310,7 @@ export default function InvoicesPage(): React.ReactElement {
       width: 140,
       render: (_, record) => (
         <Space size="small">
-          <Button size="small" onClick={() => handleOpenEdit(record.id)}>
+          <Button size="small" onClick={() => handleOpenEditInvoice(record.id)}>
             Edit
           </Button>
           <Popconfirm
@@ -235,7 +342,7 @@ export default function InvoicesPage(): React.ReactElement {
           <Button onClick={fetchInvoices} loading={loading}>
             Refresh
           </Button>
-          <Button type="primary" onClick={handleOpenAdd}>
+          <Button type="primary" onClick={handleOpenAddInvoice}>
             Add Invoice
           </Button>
           <Button icon={<UploadOutlined />}>Upload Invoices</Button>
@@ -325,14 +432,34 @@ export default function InvoicesPage(): React.ReactElement {
         />
       </div>
 
+      {/* Invoice Drawer Form */}
       <InvoiceForm
-        open={isDrawerOpen}
+        open={isInvoiceDrawerOpen}
         editingInvoiceId={editingInvoiceId}
-        onClose={() => setIsDrawerOpen(false)}
+        onClose={() => setIsInvoiceDrawerOpen(false)}
         onSuccess={() => {
-          setIsDrawerOpen(false);
+          setIsInvoiceDrawerOpen(false);
           fetchInvoices();
         }}
+      />
+
+      {/* Client Edit Drawer */}
+      <ClientForm
+        open={isClientDrawerOpen}
+        editingClient={editingClient}
+        genders={genders}
+        onCancel={() => setIsClientDrawerOpen(false)}
+        onSubmit={handleClientSubmit}
+        loading={submittingClient}
+      />
+
+      {/* Provider Edit Drawer */}
+      <ProviderForm
+        open={isProviderDrawerOpen}
+        editingProvider={editingProvider}
+        onCancel={() => setIsProviderDrawerOpen(false)}
+        onSubmit={handleProviderSubmit}
+        loading={submittingProvider}
       />
     </div>
   );

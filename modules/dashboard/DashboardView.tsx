@@ -1,149 +1,173 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { Card, Row, Col, Statistic, Table, Tag } from "antd";
-import type { ColumnsType } from "antd/es/table";
+import React, { useEffect, useState } from 'react';
+import { Card, Statistic, Row, Col, Table, Tag, message } from 'antd';
 import {
-  TeamOutlined,
-  ShopOutlined,
   FileTextOutlined,
+  UserOutlined,
+  ShopOutlined,
   DollarOutlined,
-  ArrowRightOutlined,
-} from "@ant-design/icons";
+} from '@ant-design/icons';
+import dayjs from 'dayjs';
 
-export interface RecentInvoiceRow {
-  id: number;
-  invoice_number: string | null;
-  invoice_date: string | null;
-  amount: string | null;
-  status: "drafted" | "completed";
-  client_first_name: string | null;
-  client_last_name: string | null;
-  provider_name: string | null;
+interface DashboardStats {
+  totalInvoices: number;
+  totalParticipants: number;
+  totalProviders: number;
+  totalAmount: number;
 }
 
-const recentInvoiceColumns: ColumnsType<RecentInvoiceRow> = [
-  {
-    title: "Invoice #",
-    key: "invoice_number",
-    render: (_, r) => <Link href={`/invoices/${r.id}`}>{r.invoice_number ?? "(draft)"}</Link>,
-  },
-  {
-    title: "Participant",
-    key: "client",
-    render: (_, r) =>
-      r.client_first_name ? `${r.client_first_name} ${r.client_last_name}` : "—",
-  },
-  { title: "Provider", dataIndex: "provider_name", render: (v) => v ?? "—" },
-  { title: "Invoice Date", dataIndex: "invoice_date" },
-  { title: "Amount", dataIndex: "amount", render: (v) => (v ? `$${v}` : "—") },
-  {
-    title: "Status",
-    dataIndex: "status",
-    render: (status: string) => (
-      <Tag color={status === "completed" ? "green" : "orange"}>{status}</Tag>
-    ),
-  },
-];
+export default function DashboardPage(): React.ReactElement {
+  const [stats, setStats] = useState<DashboardStats>({
+    totalInvoices: 0,
+    totalParticipants: 0,
+    totalProviders: 0,
+    totalAmount: 0,
+  });
+  const [recentInvoices, setRecentInvoices] = useState<any[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
-export function DashboardView({
-  counts,
-  recentInvoices,
-}: {
-  counts: { clients: number; providers: number; invoices: number; rateSets: number };
-  recentInvoices: RecentInvoiceRow[];
-}) {
-  const stats = [
-    { title: "Participants", value: counts.clients, icon: <TeamOutlined />, href: "/clients", color: "#1677ff" },
-    { title: "Providers", value: counts.providers, icon: <ShopOutlined />, href: "/providers", color: "#722ed1" },
-    { title: "Invoices", value: counts.invoices, icon: <FileTextOutlined />, href: "/invoices", color: "#13c2c2" },
-    { title: "Rate Sets", value: counts.rateSets, icon: <DollarOutlined />, href: "/rate-sets", color: "#52c41a" },
-  ];
+  useEffect(() => {
+    async function loadDashboardData() {
+      setLoading(true);
+      try {
+        const [invRes, clientRes, provRes] = await Promise.all([
+          fetch('/api/invoices'),
+          fetch('/api/clients'),
+          fetch('/api/providers'),
+        ]);
 
-  const navCards = [
+        const invJson = await invRes.json();
+        const clientJson = await clientRes.json();
+        const provJson = await provRes.json();
+
+        const invoicesList = invJson.data || [];
+        const clientsList = clientJson.data || [];
+        const providersList = provJson.data || [];
+
+        const totalSum = invoicesList.reduce((acc: number, item: any) => {
+          return acc + (parseFloat(item.expected_amount) || 0);
+        }, 0);
+
+        setStats({
+          totalInvoices: invoicesList.length,
+          totalParticipants: clientsList.length,
+          totalProviders: providersList.length,
+          totalAmount: totalSum,
+        });
+
+        setRecentInvoices(invoicesList.slice(0, 5));
+      } catch {
+        message.error('Failed to load dashboard data');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadDashboardData();
+  }, []);
+
+  const columns = [
     {
-      title: "Participants",
-      description: "Manage NDIS participants and their pricing regions.",
-      href: "/clients",
-      icon: <TeamOutlined style={{ fontSize: 22 }} />,
+      title: 'Invoice Number',
+      dataIndex: 'invoice_number',
+      key: 'invoice_number',
+      render: (val: string) => val || '-',
     },
     {
-      title: "Providers",
-      description: "Manage registered NDIS providers.",
-      href: "/providers",
-      icon: <ShopOutlined style={{ fontSize: 22 }} />,
+      title: 'Participant',
+      key: 'participant',
+      render: (_: any, record: any) =>
+        record.client_first_name
+          ? `${record.client_first_name} ${record.client_last_name}`
+          : '-',
     },
     {
-      title: "Invoices",
-      description: "Create, draft, and complete participant invoices.",
-      href: "/invoices",
-      icon: <FileTextOutlined style={{ fontSize: 22 }} />,
+      title: 'Provider',
+      dataIndex: 'provider_name',
+      key: 'provider_name',
+      render: (val: string) => val || '-',
     },
     {
-      title: "Rate Sets",
-      description: "Manage NDIS pricing arrangements and import catalogues.",
-      href: "/rate-sets",
-      icon: <DollarOutlined style={{ fontSize: 22 }} />,
+      title: 'Date',
+      dataIndex: 'invoice_date',
+      key: 'invoice_date',
+      render: (val: string) => (val ? dayjs(val).format('DD/MM/YYYY') : '-'),
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: string) =>
+        status === 'completed' ? (
+          <Tag color="green">Completed</Tag>
+        ) : (
+          <Tag color="orange">Draft</Tag>
+        ),
+    },
+    {
+      title: 'Amount',
+      dataIndex: 'expected_amount',
+      key: 'expected_amount',
+      render: (val: any) => (val !== null && val !== undefined ? `$${Number(val).toFixed(2)}` : '$0.00'),
     },
   ];
 
   return (
-    <div className="p-6 space-y-8">
-      <h1 className="text-xl font-semibold">Dashboard</h1>
-
-      <Row gutter={16}>
-        {stats.map((s) => (
-          <Col span={6} key={s.title}>
-            <Link href={s.href}>
-              <Card hoverable>
-                <Statistic
-                  title={s.title}
-                  value={s.value}
-                  prefix={<span style={{ color: s.color }}>{s.icon}</span>}
-                />
-              </Card>
-            </Link>
-          </Col>
-        ))}
-      </Row>
-
-      <div>
-        <h2 className="text-base font-medium mb-3">Manage</h2>
-        <Row gutter={16}>
-          {navCards.map((c) => (
-            <Col span={6} key={c.title}>
-              <Link href={c.href}>
-                <Card hoverable className="h-full">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        {c.icon}
-                        <span className="font-medium">{c.title}</span>
-                      </div>
-                      <p className="text-sm text-gray-500">{c.description}</p>
-                    </div>
-                    <ArrowRightOutlined className="text-gray-400 mt-1" />
-                  </div>
-                </Card>
-              </Link>
-            </Col>
-          ))}
-        </Row>
+    <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="bg-white p-6 rounded-md shadow-sm mb-6">
+        <h1 className="text-2xl font-bold mb-1">Dashboard</h1>
+        <p className="text-gray-500 text-sm m-0">Overview of NDIS invoicing and records.</p>
       </div>
 
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-medium">Recent Invoices</h2>
-          <Link href="/invoices" className="text-sm">
-            View all →
-          </Link>
-        </div>
-        <Table<RecentInvoiceRow>
-          rowKey="id"
-          size="small"
-          pagination={false}
+      <Row gutter={[16, 16]} className="mb-6">
+        <Col span={6}>
+          <Card loading={loading}>
+            <Statistic
+              title="Total Invoices"
+              value={stats.totalInvoices}
+              prefix={<FileTextOutlined className="text-blue-500 mr-2" />}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card loading={loading}>
+            <Statistic
+              title="Participants"
+              value={stats.totalParticipants}
+              prefix={<UserOutlined className="text-green-500 mr-2" />}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card loading={loading}>
+            <Statistic
+              title="Providers"
+              value={stats.totalProviders}
+              prefix={<ShopOutlined className="text-purple-500 mr-2" />}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card loading={loading}>
+            <Statistic
+              title="Total Value"
+              value={stats.totalAmount}
+              precision={2}
+              prefix={<DollarOutlined className="text-yellow-500 mr-1" />}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      <div className="bg-white p-6 rounded-md shadow-sm">
+        <h2 className="text-lg font-bold mb-4">Recent Invoices</h2>
+        <Table
           dataSource={recentInvoices}
-          columns={recentInvoiceColumns}
+          columns={columns}
+          rowKey="id"
+          loading={loading}
+          pagination={false}
         />
       </div>
     </div>

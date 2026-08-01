@@ -3,6 +3,11 @@ import { sql, Selectable } from 'kysely';
 import { Invoice } from '@/db/types';
 
 export class InvoiceRepository {
+  async list() {
+    return await this.findAll(); 
+  }
+
+
   async findAll(): Promise<any[]> {
     return await db
       .selectFrom('invoice')
@@ -40,7 +45,9 @@ export class InvoiceRepository {
     return { ...invoice, items };
   }
 
-  async checkInvoiceNumberUnique(providerId: number, invoiceNumber: string, excludeInvoiceId?: number): Promise<boolean> {
+  async checkInvoiceNumberUnique(providerId: number | null | undefined, invoiceNumber: string | null | undefined, excludeInvoiceId?: number): Promise<boolean> {
+    if (!providerId || !invoiceNumber) return true;
+
     let query = db
       .selectFrom('invoice')
       .select('id')

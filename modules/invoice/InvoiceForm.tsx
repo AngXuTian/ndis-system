@@ -36,6 +36,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({
 
   const [submittingAction, setSubmittingAction] = useState<'drafted' | 'completed' | null>(null);
   const [derivedTotalAmount, setDerivedTotalAmount] = useState<number | null>(0);
+  
+  // Track if current invoice status is completed
+  const [isCompletedStatus, setIsCompletedStatus] = useState<boolean>(false);
 
   useEffect(() => {
     async function loadDropdownsAndData() {
@@ -57,6 +60,10 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({
           const invJson = await invRes.json();
           if (invJson.data) {
             const record = invJson.data;
+            
+            // Check if status is completed
+            setIsCompletedStatus(record.status === 'completed');
+
             form.setFieldsValue({
               client_id: record.client_id,
               provider_id: record.provider_id,
@@ -78,6 +85,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({
             calculateAmounts();
           }
         } else {
+          setIsCompletedStatus(false);
           form.resetFields();
           form.setFieldsValue({
             invoice_date: dayjs(),
@@ -127,6 +135,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({
     setSubmittingAction(targetStatus);
     try {
       if (targetStatus === 'completed') {
+        // Enforce strict frontend form validations for completion
         const values = await form.validateFields();
 
         const payload = {
@@ -162,20 +171,25 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({
           message.error(json.error?.message || 'Failed to save invoice');
         }
       } else {
+        // Save as Draft: Read raw values without triggering form.validateFields()
         const rawValues = form.getFieldsValue();
 
         const payload = {
-          ...rawValues,
-          expected_amount: rawValues.expected_amount !== undefined && rawValues.expected_amount !== '' ? parseFloat(rawValues.expected_amount) : null,
+          client_id: rawValues.client_id ?? null,
+          provider_id: rawValues.provider_id ?? null,
+          invoice_number: rawValues.invoice_number ? String(rawValues.invoice_number).trim() : null,
+          invoice_date: rawValues.invoice_date ? dayjs(rawValues.invoice_date).format('YYYY-MM-DD') : null,
+          expected_amount: rawValues.expected_amount !== undefined && rawValues.expected_amount !== '' && rawValues.expected_amount !== null
+            ? parseFloat(rawValues.expected_amount)
+            : null,
           status: 'drafted',
-          invoice_date: rawValues.invoice_date ? dayjs(rawValues.invoice_date).format('YYYY-MM-DD') : '',
           items: (rawValues.items || []).map((item: any) => ({
             ...item,
-            unit: item.unit ? parseFloat(item.unit) : null,
-            input_rate: item.input_rate ? parseFloat(item.input_rate) : null,
-            amount: item.amount ? parseFloat(item.amount) : 0,
-            start_date: item.start_date ? dayjs(item.start_date).format('YYYY-MM-DD') : null,
-            end_date: item.end_date ? dayjs(item.end_date).format('YYYY-MM-DD') : null,
+            unit: item?.unit ? parseFloat(item.unit) : null,
+            input_rate: item?.input_rate ? parseFloat(item.input_rate) : null,
+            amount: item?.amount ? parseFloat(item.amount) : null,
+            start_date: item?.start_date ? dayjs(item.start_date).format('YYYY-MM-DD') : null,
+            end_date: item?.end_date ? dayjs(item.end_date).format('YYYY-MM-DD') : null,
           })),
         };
 
@@ -222,13 +236,18 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({
           <Button onClick={onClose} disabled={submittingAction !== null}>
             Cancel
           </Button>
-          <Button
-            onClick={() => handleSave('drafted')}
-            loading={submittingAction === 'drafted'}
-            disabled={submittingAction === 'completed'}
-          >
-            Save as Draft
-          </Button>
+
+          {/* Hide 'Save as Draft' if current invoice status is 'completed' */}
+          {!isCompletedStatus && (
+            <Button
+              onClick={() => handleSave('drafted')}
+              loading={submittingAction === 'drafted'}
+              disabled={submittingAction === 'completed'}
+            >
+              Save as Draft
+            </Button>
+          )}
+
           <Button
             type="primary"
             onClick={() => handleSave('completed')}

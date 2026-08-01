@@ -2,6 +2,29 @@ import { NextResponse } from 'next/server';
 import { clientService } from '@/services/client.service';
 import { ZodError } from 'zod';
 
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const { id } = await params;
+    const client = await clientService.getClientById(Number(id));
+    if (!client) {
+      return NextResponse.json(
+        { error: { code: 'NOT_FOUND', message: 'Participant not found' } },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json({ data: client });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message } },
+      { status: 500 }
+    );
+  }
+}
+
 export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }

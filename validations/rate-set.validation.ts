@@ -3,6 +3,7 @@ export interface RateSetInput {
   description?: string | null;
   start_date?: string;
   end_date?: string | null;
+  is_active?: boolean;
 }
 
 export type ValidationErrors = Record<string, string[]>;
