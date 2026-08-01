@@ -34,6 +34,7 @@ export class RateSetImportService {
   async importExcelToRateSet(rateSetId: number, fileBuffer: Buffer): Promise<ImportResult> {
     const workbook = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true });
 
+    // Codes match the primary keys in rate_set_support_item_pricing_region
     const regionalColumns: RegionDefinition[] = [
       { colIndex: 12, code: 'ACT', label: 'ACT', full_label: 'Australian Capital Territory' },
       { colIndex: 13, code: 'NSW', label: 'NSW', full_label: 'New South Wales' },
@@ -44,7 +45,7 @@ export class RateSetImportService {
       { colIndex: 18, code: 'VIC', label: 'VIC', full_label: 'Victoria' },
       { colIndex: 19, code: 'WA', label: 'WA', full_label: 'Western Australia' },
       { colIndex: 20, code: 'REMOTE', label: 'Remote', full_label: 'Remote' },
-      { colIndex: 21, code: 'VERY_REMOTE', label: 'Very Remote', full_label: 'Very Remote' },
+      { colIndex: 21, code: 'VERY REMOTE', label: 'Very Remote', full_label: 'Very Remote' },
     ];
 
     const attributeColumns: AttributeDefinition[] = [
@@ -59,19 +60,34 @@ export class RateSetImportService {
     let totalRowsProcessed = 0;
 
     await db.transaction().execute(async (trx) => {
+      // 1. Clear existing price records for this rate set to prevent exclusion constraint overlaps
+      await trx
+        .deleteFrom('rate_set_support_item_price')
+        .where('rate_set_id', '=', rateSetId)
+        .execute();
+
+      // 2. Safely upsert attribute types
       for (const attr of attributeColumns) {
         await trx
           .insertInto('rate_set_support_item_attribute_type')
           .values({ code: attr.code, label: attr.label })
-          .onConflict((oc) => oc.column('code').doNothing())
+          .onConflict((oc) =>
+            oc.column('code').doUpdateSet({ label: attr.label })
+          )
           .execute();
       }
 
+      // 3. Safely upsert pricing regions matching code primary key
       for (const reg of regionalColumns) {
         await trx
           .insertInto('rate_set_support_item_pricing_region')
           .values({ code: reg.code, label: reg.label, full_label: reg.full_label })
-          .onConflict((oc) => oc.column('code').doNothing())
+          .onConflict((oc) =>
+            oc.column('code').doUpdateSet({
+              label: reg.label,
+              full_label: reg.full_label,
+            })
+          )
           .execute();
       }
 
@@ -219,21 +235,6 @@ export class RateSetImportService {
                     end_date: endDate,
                     updated_at: sql`now()`,
                   })
-                  .onConflict((oc) =>
-                    oc
-                      .columns([
-                        'rate_set_id',
-                        'support_item_id',
-                        'type_id',
-                        'pricing_region_code',
-                        'start_date',
-                        'end_date',
-                      ])
-                      .doUpdateSet({
-                        unit_price: String(numericPrice),
-                        updated_at: sql`now()`,
-                      })
-                  )
                   .execute();
               }
             }

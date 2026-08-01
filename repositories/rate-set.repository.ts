@@ -70,6 +70,13 @@ export const rateSetRepository = {
       .executeTakeFirst();
   },
 
+  async clearRateSetItemsForImport(rateSetId: number, trx = db) {
+    await trx
+      .deleteFrom("rate_set_support_item_price")
+      .where("rate_set_id", "=", rateSetId)
+      .execute();
+  },
+
   async softDelete(id: number) {
     return db
       .updateTable("rate_set")

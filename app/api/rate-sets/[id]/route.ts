@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/db';
-
 import { sql } from 'kysely';
 import { rateSetImportService } from '@/services/rate-set-import.service';
 
@@ -18,13 +17,19 @@ export async function GET(
       .executeTakeFirst();
 
     if (!rateSet) {
-      return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Rate set not found' } }, { status: 404 });
+      return NextResponse.json(
+        { error: { code: 'NOT_FOUND', message: 'Rate set not found' } },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json({ data: rateSet });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message } }, { status: 500 });
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message } },
+      { status: 500 }
+    );
   }
 }
 
@@ -36,7 +41,15 @@ export async function PUT(
     const { id } = await params;
     const rateSetId = Number(id);
 
+    if (isNaN(rateSetId)) {
+      return NextResponse.json(
+        { error: { code: 'BAD_REQUEST', message: 'Invalid Rate Set ID' } },
+        { status: 400 }
+      );
+    }
+
     const formData = await req.formData();
+    console.log('Received form data:', formData);
     const name = formData.get('name') as string;
     const description = formData.get('description') as string;
     const startDate = formData.get('start_date') as string;
@@ -44,13 +57,24 @@ export async function PUT(
     const active = formData.get('active') === 'true';
     const file = formData.get('file') as File | null;
 
+    if (!name || !startDate) {
+      return NextResponse.json(
+        { error: { code: 'BAD_REQUEST', message: 'Name and Start Date are required' } },
+        { status: 400 }
+      );
+    }
+
+    // Safely parse start and end dates
+    const parsedStartDate = new Date(startDate);
+    const parsedEndDate = endDate && endDate.trim() !== '' ? new Date(endDate) : null;
+
     const updated = await db
       .updateTable('rate_set')
       .set({
         name,
         description: description || null,
-        start_date: new Date(startDate),
-        end_date: endDate ? new Date(endDate) : null,
+        start_date: parsedStartDate,
+        end_date: parsedEndDate,
         deactivated_at: active ? null : new Date(),
         updated_at: sql`now()`,
       })
@@ -58,15 +82,20 @@ export async function PUT(
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    if (file) {
+    // Check if a valid Excel file with content size > 0 was actually uploaded
+    if (file && file instanceof File && file.size > 0) {
       const buffer = Buffer.from(await file.arrayBuffer());
       await rateSetImportService.importExcelToRateSet(rateSetId, buffer);
     }
 
     return NextResponse.json({ data: updated });
   } catch (error: unknown) {
+    console.error('Error updating rate set:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message } }, { status: 500 });
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message } },
+      { status: 500 }
+    );
   }
 }
 
@@ -89,6 +118,9 @@ export async function DELETE(
     return NextResponse.json({ data: { success: true } });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: { code: 'INTERNAL_ERROR', message } }, { status: 500 });
+    return NextResponse.json(
+      { error: { code: 'INTERNAL_ERROR', message } },
+      { status: 500 }
+    );
   }
 }
