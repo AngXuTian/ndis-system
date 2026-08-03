@@ -31,6 +31,40 @@ export class RateSetImportService {
     return str === 'YES' || str === 'Y';
   }
 
+  /**
+   * NDIS catalogue "Start date" / "End Date" columns are exported as
+   * YYYYMMDD, either as a string ("20240701") or a bare number (20240701).
+   * They are NOT ISO-8601, so `new Date(String(val))` silently produces
+   * an Invalid Date (all fields NaN), which Postgres then rejects with
+   * "invalid input syntax for type timestamp with time zone".
+   *
+   * This also handles the case where `cellDates: true` already converted
+   * the cell into a real JS Date (e.g. if a sheet uses a date-formatted
+   * cell instead of plain text/number).
+   */
+  private parseNdisDate(val: unknown): Date | null {
+    if (val === undefined || val === null || val === '') return null;
+
+    if (val instanceof Date) {
+      return isNaN(val.getTime()) ? null : val;
+    }
+
+    const str = String(val).trim();
+
+    // YYYYMMDD (8 digits) - the format actually used in the catalogue
+    const match = str.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (match) {
+      const [, year, month, day] = match;
+      // Use UTC to avoid local-timezone shifting the date by a day
+      const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+      return isNaN(date.getTime()) ? null : date;
+    }
+
+    // Fallback: try native parsing for anything already ISO-ish
+    const fallback = new Date(str);
+    return isNaN(fallback.getTime()) ? null : fallback;
+  }
+
   async importExcelToRateSet(rateSetId: number, fileBuffer: Buffer): Promise<ImportResult> {
     const workbook = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true });
 
@@ -107,8 +141,8 @@ export class RateSetImportService {
           const categoryNumber = String(row[5] || row[4] || '').trim();
           const categoryName = String(row[7] || row[6] || '').trim();
           const unit = row[8] ? String(row[8]).trim() : null;
-          const startDate = row[10] ? new Date(String(row[10])) : new Date();
-          const endDate = row[11] ? new Date(String(row[11])) : null;
+          const startDate = this.parseNdisDate(row[10]) ?? new Date();
+          const endDate = this.parseNdisDate(row[11]);
           const rawType = row[27] ? String(row[27]).trim() : null;
 
           if (!itemNumber || !categoryNumber) continue;

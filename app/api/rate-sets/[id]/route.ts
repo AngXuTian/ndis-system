@@ -49,7 +49,6 @@ export async function PUT(
     }
 
     const formData = await req.formData();
-    console.log('Received form data:', formData);
     const name = formData.get('name') as string;
     const description = formData.get('description') as string;
     const startDate = formData.get('start_date') as string;
